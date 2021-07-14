@@ -69,6 +69,7 @@ void print_help(void) {
     printf("                           [-R] Transmit in Radiohead format\n");
     printf("                           [-v] show version \n");
     printf("                           [-h] show this help and exit \n");
+    printf(" VERSION EDITED BY W-M FOR OBERX\n");
 }
 
 int DEBUG_INFO = 0;       
@@ -319,7 +320,12 @@ int main(int argc, char *argv[])
                     }
 
                     if (fp) {  
-                        fprintf(fp, "%s\n", rxpkt.payload);
+			// EDITED BY W-M:
+                        // fprintf(fp, "%s\n", rxpkt.payload);
+			fwrite(rxpkt.payload, sizeof(char), rxpkt.size, fp);
+			// fputc('\n', fp);
+			// END EDIT
+
                         fflush(fp);
                     }
 
@@ -361,8 +367,14 @@ int main(int argc, char *argv[])
                     
                     chan_fp  = fopen(chan_path, "w+");
                     if ( NULL !=  chan_fp ) {
+			// EDITED BY W-M:
                         //fwrite(chan_data, sizeof(char), data_size, fp);  
-                        fprintf(chan_fp, "%s\n", chan_data);
+                        // fprintf(chan_fp, "%s\n", chan_data);
+
+			fwrite(chan_data, sizeof(char), data_size, chan_fp);
+			// fputc('\n', fp);
+			// END EDIT
+
                         fflush(chan_fp);
                         fclose(chan_fp);
                     } else 
