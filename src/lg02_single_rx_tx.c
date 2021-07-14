@@ -15,6 +15,8 @@
 
 #include "radio.h"
 
+#include "base64.h" /* Used by W-M for conversion to base64 */
+
 #define TX_MODE 0
 #define RX_MODE 1
 #define RADIOHEAD 1
@@ -241,7 +243,7 @@ int main(int argc, char *argv[])
     loradev->invertio = 0;
     strcpy(loradev->desc, "RFDEV");	
 
-    MSG("Radio struct: spi_dev=%s, spiport=%d, freq=%ld, sf=%d, bw=%ld, cr=%d, pr=%d, wd=0x%2x, power=%d\n", radio, loradev->spiport, loradev->freq, loradev->sf, loradev->bw, loradev->cr, loradev->prlen, loradev->syncword, loradev->power);
+    MSG("OBERX Radio struct: spi_dev=%s, spiport=%d, freq=%ld, sf=%d, bw=%ld, cr=%d, pr=%d, wd=%d (0x%2x), power=%d\n", radio, loradev->spiport, loradev->freq, loradev->sf, loradev->bw, loradev->cr, loradev->prlen, loradev->syncword, loradev->syncword, loradev->power);
 
     if(!get_radio_version(loradev))  
         goto clean;
@@ -323,12 +325,13 @@ int main(int argc, char *argv[])
 			// EDITED BY W-M:
                         // fprintf(fp, "%s\n", rxpkt.payload);
 			fwrite(rxpkt.payload, sizeof(char), rxpkt.size, fp);
-			// fputc('\n', fp);
+			fputc('\n', fp);
 			// END EDIT
 
                         fflush(fp);
                     }
 
+		
                     if (tmp[2] == 0x00 && tmp[3] == 0x00) /* Maybe has HEADER ffff0000 */
                          chan_data = &tmp[4];
                     else
@@ -371,8 +374,16 @@ int main(int argc, char *argv[])
                         //fwrite(chan_data, sizeof(char), data_size, fp);  
                         // fprintf(chan_fp, "%s\n", chan_data);
 
-			fwrite(chan_data, sizeof(char), data_size, chan_fp);
-			// fputc('\n', fp);
+			// fwrite(chan_data, sizeof(char), data_size, chan_fp);
+			// fwrite(rxpkt.payload, sizeof(char), rxpkt.size, chan_fp);
+			// fputc('\n', chan_fp);
+
+
+			// Try it one more time in hexadecimal:
+			char buff[341];
+			size_t buff_size = bin_to_b64((uint8_t *)rxpkt.payload, rxpkt.size, buff, 341); /* 255 bytes = 340 chars in b64 + null char */
+			fwrite(buff, sizeof(char), buff_size, chan_fp);
+			fputc('\n', chan_fp);
 			// END EDIT
 
                         fflush(chan_fp);
