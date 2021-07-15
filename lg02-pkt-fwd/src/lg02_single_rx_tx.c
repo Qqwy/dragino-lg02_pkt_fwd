@@ -14,8 +14,7 @@
 #include <errno.h>		/* error messages */
 
 #include "radio.h"
-
-#include "base64.h" /* Used by W-M for conversion to base64 */
+#include "base64.h"
 
 #define TX_MODE 0
 #define RX_MODE 1
@@ -24,7 +23,7 @@
 #define RADIO1    "/dev/spidev1.0"
 #define RADIO2    "/dev/spidev2.0"
 
-static char ver[] = "oberx 0.3";
+static char ver[] = "json 0.3";
 
 /* lora configuration variables */
 static char sf[8] = "7";
@@ -70,8 +69,9 @@ void print_help(void) {
     printf("                           [-o filepath ] payload output to file\n");
     printf("                           [-R] Transmit in Radiohead format\n");
     printf("                           [-v] show version \n");
-    printf("                           [-h] show this help and exit \n");
-    printf("VERSION EDITED BY W-M FOR OBERX\n");
+    printf("                           [-h] show this help and exit \n\n");
+    printf("Special version which prints LoRa-package in the following JSON format:\n");
+    printf("\t{\"rssi\": float, \"snr\": float, \"data\": base64_encoded_string}\n");
 }
 
 int DEBUG_INFO = 0;       
@@ -243,7 +243,7 @@ int main(int argc, char *argv[])
     loradev->invertio = 0;
     strcpy(loradev->desc, "RFDEV");	
 
-    MSG("OBERX Radio struct: spi_dev=%s, spiport=%d, freq=%ld, sf=%d, bw=%ld, cr=%d, pr=%d, wd=%d (0x%2x), power=%d\n", radio, loradev->spiport, loradev->freq, loradev->sf, loradev->bw, loradev->cr, loradev->prlen, loradev->syncword, loradev->syncword, loradev->power);
+    MSG("JSON-forwarding Radio struct: spi_dev=%s, spiport=%d, freq=%ld, sf=%d, bw=%ld, cr=%d, pr=%d, wd=%d (0x%2x), power=%d\n", radio, loradev->spiport, loradev->freq, loradev->sf, loradev->bw, loradev->cr, loradev->prlen, loradev->syncword, loradev->syncword, loradev->power);
 
     if(!get_radio_version(loradev))  
         goto clean;
