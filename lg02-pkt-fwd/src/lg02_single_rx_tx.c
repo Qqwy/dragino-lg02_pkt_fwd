@@ -226,6 +226,9 @@ int main(int argc, char *argv[])
 	loradev->dio[1] = 20;
 	loradev->dio[2] = 0;
 	strncpy(radio, RADIO2, sizeof(radio));	
+    } else {
+	printf("-d setting has to be 1 or 2. Did not recognize `%c`\n", device);
+	goto clean;
     }
 
     loradev->spiport = lgw_spi_open(radio);
