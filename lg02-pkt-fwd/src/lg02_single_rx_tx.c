@@ -15,6 +15,8 @@
 
 #include "radio.h"
 
+#include "base64.h" /* Used by W-M for conversion to base64 */
+
 #define TX_MODE 0
 #define RX_MODE 1
 #define RADIOHEAD 1
@@ -22,7 +24,7 @@
 #define RADIO1    "/dev/spidev1.0"
 #define RADIO2    "/dev/spidev2.0"
 
-static char ver[8] = "0.2";
+static char ver[] = "oberx 0.3";
 
 /* lora configuration variables */
 static char sf[8] = "7";
@@ -69,6 +71,7 @@ void print_help(void) {
     printf("                           [-R] Transmit in Radiohead format\n");
     printf("                           [-v] show version \n");
     printf("                           [-h] show this help and exit \n");
+    printf(" VERSION EDITED BY W-M FOR OBERX\n");
 }
 
 int DEBUG_INFO = 0;       
@@ -240,7 +243,7 @@ int main(int argc, char *argv[])
     loradev->invertio = 0;
     strcpy(loradev->desc, "RFDEV");	
 
-    MSG("Radio struct: spi_dev=%s, spiport=%d, freq=%ld, sf=%d, bw=%ld, cr=%d, pr=%d, wd=0x%2x, power=%d\n", radio, loradev->spiport, loradev->freq, loradev->sf, loradev->bw, loradev->cr, loradev->prlen, loradev->syncword, loradev->power);
+    MSG("OBERX Radio struct: spi_dev=%s, spiport=%d, freq=%ld, sf=%d, bw=%ld, cr=%d, pr=%d, wd=%d (0x%2x), power=%d\n", radio, loradev->spiport, loradev->freq, loradev->sf, loradev->bw, loradev->cr, loradev->prlen, loradev->syncword, loradev->syncword, loradev->power);
 
     if(!get_radio_version(loradev))  
         goto clean;
@@ -298,13 +301,17 @@ int main(int argc, char *argv[])
         static unsigned long next = 1, count_ok = 0, count_err = 0;
         int i, data_size;
 
+	// Ensure that randomly generated channel file names are different for device 1 vs device 2.
+        // device '49' vs device '50' since read as ASCII, see above
+	next += (device - 49); 
+
         rxlora(loradev, RXMODE_SCAN);
 
         if (strlen(filepath) > 0) 
             fp = fopen(filepath, "w+");
 
         MSG("\nListening at SF%i on %.6lf Mhz. port%i\n", loradev->sf, (double)(loradev->freq)/1000000, loradev->spiport);
-        fprintf(stdout, "REC_OK: %d,    CRCERR: %d\n", count_ok, count_err);
+        fprintf(stdout, "REC_OK: %d,    CRCERR: %d, next channel RNG: %ld\n", count_ok, count_err, (unsigned)(next/65536) % 32768);
         while (!exit_sig && !quit_sig) {
             if(digitalRead(loradev->dio[0]) == 1) {
                 memset(rxpkt.payload, 0, sizeof(rxpkt.payload));
@@ -319,10 +326,16 @@ int main(int argc, char *argv[])
                     }
 
                     if (fp) {  
-                        fprintf(fp, "%s\n", rxpkt.payload);
+			// EDITED BY W-M:
+                        // fprintf(fp, "%s\n", rxpkt.payload);
+			fwrite(rxpkt.payload, sizeof(char), rxpkt.size, fp);
+			fputc('\n', fp);
+			// END EDIT
+
                         fflush(fp);
                     }
 
+		
                     if (tmp[2] == 0x00 && tmp[3] == 0x00) /* Maybe has HEADER ffff0000 */
                          chan_data = &tmp[4];
                     else
@@ -361,17 +374,41 @@ int main(int argc, char *argv[])
                     
                     chan_fp  = fopen(chan_path, "w+");
                     if ( NULL !=  chan_fp ) {
+			// EDITED BY W-M:
                         //fwrite(chan_data, sizeof(char), data_size, fp);  
-                        fprintf(chan_fp, "%s\n", chan_data);
+                        // fprintf(chan_fp, "%s\n", chan_data);
+
+			// fwrite(chan_data, sizeof(char), data_size, chan_fp);
+			// fwrite(rxpkt.payload, sizeof(char), rxpkt.size, chan_fp);
+			// fputc('\n', chan_fp);
+
+
+			// Try it one more time in hexadecimal:
+			/// char json_buffer[JSON_BUFFER_SIZE];
+			/// size_t json_buffer_index = 0;
+			/// json_buffer_index += snprintf((json_buffer + json_buffer_index), JSON_BUFFER_SIZE - json_buffer_index, "{\"rssi\":%.0f,\"snr\":%.1f,\"data\":\"", rxpkt.rssi, rxpkt.snr);
+
+			char b64_data_buffer[341] = {'\0'};
+			bin_to_b64((uint8_t *)rxpkt.payload, rxpkt.size, b64_data_buffer, 341); /* 255 bytes = 340 chars in b64 + null char */
+			/// json_buffer_index += bin_to_b64((uint8_t *)rxpkt.payload, rxpkt.size, (json_buffer + json_buffer_index), 341); /* 255 bytes = 340 chars in b64 + null char */
+			/// json_buffer_index += snprintf((json_buffer + json_buffer_index), JSON_BUFFER_SIZE - json_buffer_index, "\"}");
+			
+			// fwrite(buff, sizeof(char), buff_size, chan_fp);
+			// fwrite(json_buffer, sizeof(char), json_buffer_index, chan_fp);
+                        /// fprintf(chan_fp, "%s\n", json_buffer);
+
+			fprintf(chan_fp, "{\"rssi\":%.0f,\"snr\":%.1f,\"data\":\"%s\"}\n", rxpkt.rssi, rxpkt.snr, b64_data_buffer);
+			// END EDIT
+
                         fflush(chan_fp);
                         fclose(chan_fp);
                     } else 
                         fprintf(stderr, "ERROR~ canot open file path: %s\n", chan_path); 
 
                     //fprintf(stdout, "Received: %s\n", chan_data);
-                    fprintf(stdout, "count_OK: %d, count_CRCERR: %d\n", ++count_ok, count_err);
+                    fprintf(stdout, "count_OK: %d, count_CRCERR: %d, next channel RNG: %ld\n", ++count_ok, count_err, (unsigned)(next/65536) % 32768);
                 } else                                             
-                    fprintf(stdout, "REC_OK: %d, CRCERR: %d\n", count_ok, ++count_err);
+                    fprintf(stdout, "REC_OK: %d, CRCERR: %d, next channel RNG: %ld\n", count_ok, ++count_err, (unsigned)(next/65536) % 32768);
             }
         }
 
