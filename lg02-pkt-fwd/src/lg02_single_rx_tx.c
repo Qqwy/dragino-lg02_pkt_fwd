@@ -14,6 +14,7 @@
 #include <errno.h>		/* error messages */
 
 #include "radio.h"
+#include "base64.h"
 
 #define TX_MODE 0
 #define RX_MODE 1
@@ -22,7 +23,7 @@
 #define RADIO1    "/dev/spidev1.0"
 #define RADIO2    "/dev/spidev2.0"
 
-static char ver[8] = "0.2";
+static char ver[] = "json 0.3";
 
 /* lora configuration variables */
 static char sf[8] = "7";
@@ -38,6 +39,8 @@ static int mode = TX_MODE;
 static int payload_format = 0; 
 static int device = 49;
 static bool getversion = false;
+
+unsigned nextChannelFilename(unsigned long next_rng_val);
 
 /* signal handling variables */
 volatile bool exit_sig = false; /* 1 -> application terminates cleanly (shut down hardware, close open files, etc) */
@@ -55,20 +58,23 @@ static void sig_handler(int sigio) {
 
 void print_help(void) {
     printf("Usage: lg02_single_rx_tx   [-d radio_dev] select radio 1 or 2 (default:1) \n");
-    printf("                           [-t] set as tx\n");
-    printf("                           [-r] set as rx\n");
-    printf("                           [-f frequence] (default:868500000)\n");
+    printf("                           [-t] use transmission mode\n");
+    printf("                           [-r] use receiving mode\n");
+    printf("                           [-f frequency] (default:868500000)\n");
     printf("                           [-s spreadingFactor] (default: 7)\n");
     printf("                           [-b bandwidth] default: 125k \n");
-    printf("                           [-w syncword] default: 52(0x34)reserver for lorawan\n");
+    printf("                           [-w syncword] default: 52(0x34), the value reserved for lorawan\n");
     printf("                           [-c coderate] default: 5(4/5), range 5~8(4/8)\n");
     printf("                           [-p PreambleLength] default: 8, range 6~65535\n");
-    printf("                           [-m message ]  message to send\n");
-    printf("                           [-P power ] Transmit Power (min:5; max:20) \n");
-    printf("                           [-o filepath ] payload output to file\n");
-    printf("                           [-R] Transmit in Radiohead format\n");
+    printf("                           [-m message ] transmission mode:  message to send\n");
+    printf("                           [-P power ] transmission mode: transmitting power (min:5; max:20) \n");
+    printf("                           [-R] transmission mode: use Radiohead format\n");
+    printf("                           [-o filepath ] receiving mode: output received packets to this file (one per line)\n");
     printf("                           [-v] show version \n");
-    printf("                           [-h] show this help and exit \n");
+    printf("                           [-h] show this help and exit \n\n");
+    printf("In receiving mode, will store received packages as files in `/var/channel/`. (Even if `-o` is also active). The names of these files are pseudorandom numbers. \n\n");
+    printf("\tThis is a special version of the program which prints received LoRa-packets in the following JSON format:\n");
+    printf("\t\t{\"rssi\": float, \"snr\": float, \"data\": base64_encoded_string}\n");
 }
 
 int DEBUG_INFO = 0;       
@@ -220,6 +226,9 @@ int main(int argc, char *argv[])
 	loradev->dio[1] = 20;
 	loradev->dio[2] = 0;
 	strncpy(radio, RADIO2, sizeof(radio));	
+    } else {
+	printf("-d setting has to be 1 or 2. Did not recognize `%c`\n", device);
+	goto clean;
     }
 
     loradev->spiport = lgw_spi_open(radio);
@@ -240,7 +249,7 @@ int main(int argc, char *argv[])
     loradev->invertio = 0;
     strcpy(loradev->desc, "RFDEV");	
 
-    MSG("Radio struct: spi_dev=%s, spiport=%d, freq=%ld, sf=%d, bw=%ld, cr=%d, pr=%d, wd=0x%2x, power=%d\n", radio, loradev->spiport, loradev->freq, loradev->sf, loradev->bw, loradev->cr, loradev->prlen, loradev->syncword, loradev->power);
+    MSG("JSON-forwarding Radio struct: spi_dev=%s, spiport=%d, freq=%ld, sf=%d, bw=%ld, cr=%d, pr=%d, wd=%d (0x%2x), power=%d\n", radio, loradev->spiport, loradev->freq, loradev->sf, loradev->bw, loradev->cr, loradev->prlen, loradev->syncword, loradev->syncword, loradev->power);
 
     if(!get_radio_version(loradev))  
         goto clean;
@@ -298,13 +307,17 @@ int main(int argc, char *argv[])
         static unsigned long next = 1, count_ok = 0, count_err = 0;
         int i, data_size;
 
+	// Ensure that randomly generated channel file names are different for device 1 vs device 2.
+        // device '49' vs device '50' since read as ASCII, see above
+	next += (device - 49); 
+
         rxlora(loradev, RXMODE_SCAN);
 
         if (strlen(filepath) > 0) 
             fp = fopen(filepath, "w+");
 
         MSG("\nListening at SF%i on %.6lf Mhz. port%i\n", loradev->sf, (double)(loradev->freq)/1000000, loradev->spiport);
-        fprintf(stdout, "REC_OK: %d,    CRCERR: %d\n", count_ok, count_err);
+        fprintf(stdout, "REC_OK: %d,    CRCERR: %d, next channel RNG: %ld\n", count_ok, count_err, nextChannelFilename(next));
         while (!exit_sig && !quit_sig) {
             if(digitalRead(loradev->dio[0]) == 1) {
                 memset(rxpkt.payload, 0, sizeof(rxpkt.payload));
@@ -318,8 +331,11 @@ int main(int argc, char *argv[])
                         tmp[i] = rxpkt.payload[i];
                     }
 
-                    if (fp) {  
-                        fprintf(fp, "%s\n", rxpkt.payload);
+                    if (fp) {
+                        char b64_data_buffer[341] = {'\0'};
+                        bin_to_b64((uint8_t *)rxpkt.payload, rxpkt.size, b64_data_buffer, 341); /* 255 bytes = 340 chars in b64 + null char */
+
+                        fprintf(fp, "{\"rssi\":%.0f,\"snr\":%.1f,\"data\":\"%s\"}\n", rxpkt.rssi, rxpkt.snr, b64_data_buffer);
                         fflush(fp);
                     }
 
@@ -354,24 +370,27 @@ int main(int argc, char *argv[])
                     else {
                         srand((unsigned)time(NULL)); 
                         next = next * 1103515245 + 12345;
-                        sprintf(chan_path, "/var/iot/channels/%ld", (unsigned)(next/65536) % 32768);
+                        sprintf(chan_path, "/var/iot/channels/%ld", nextChannelFilename(next));
                     }
 
                     id_found = 0;  /* reset id_found */
                     
                     chan_fp  = fopen(chan_path, "w+");
                     if ( NULL !=  chan_fp ) {
-                        //fwrite(chan_data, sizeof(char), data_size, fp);  
-                        fprintf(chan_fp, "%s\n", chan_data);
+                        char b64_data_buffer[341] = {'\0'};
+                        bin_to_b64((uint8_t *)rxpkt.payload, rxpkt.size, b64_data_buffer, 341); /* 255 bytes = 340 chars in b64 + null char */
+
+                        fprintf(chan_fp, "{\"rssi\":%.0f,\"snr\":%.1f,\"data\":\"%s\"}\n", rxpkt.rssi, rxpkt.snr, b64_data_buffer);
+
                         fflush(chan_fp);
                         fclose(chan_fp);
-                    } else 
+                    } else
                         fprintf(stderr, "ERROR~ canot open file path: %s\n", chan_path); 
 
                     //fprintf(stdout, "Received: %s\n", chan_data);
-                    fprintf(stdout, "count_OK: %d, count_CRCERR: %d\n", ++count_ok, count_err);
-                } else                                             
-                    fprintf(stdout, "REC_OK: %d, CRCERR: %d\n", count_ok, ++count_err);
+                    fprintf(stdout, "count_OK: %d, count_CRCERR: %d, next channel RNG: %ld\n", ++count_ok, count_err, nextChannelFilename(next));
+                } else
+                    fprintf(stdout, "REC_OK: %d, CRCERR: %d, next channel RNG: %ld\n", count_ok, ++count_err, nextChannelFilename(next));
             }
         }
 
@@ -385,4 +404,13 @@ clean:
 	
     MSG("INFO: Exiting %s\n", argv[0]);
     exit(EXIT_SUCCESS);
+}
+
+/* 
+  Return a random value between 0-32768 based on the unsigned long RNG value which has twice as many bytes.
+  This was already the approach used in the original version of the code;
+  it has been extracted here to document it and have some re-use rather than copy-pasting the same magical formula multiple times.
+*/
+unsigned nextChannelFilename(unsigned long next_rng_val) {
+    return (next_rng_val / 65535) % 32768;
 }
