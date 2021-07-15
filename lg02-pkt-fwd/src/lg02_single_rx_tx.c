@@ -71,7 +71,7 @@ void print_help(void) {
     printf("                           [-R] Transmit in Radiohead format\n");
     printf("                           [-v] show version \n");
     printf("                           [-h] show this help and exit \n");
-    printf(" VERSION EDITED BY W-M FOR OBERX\n");
+    printf("VERSION EDITED BY W-M FOR OBERX\n");
 }
 
 int DEBUG_INFO = 0;       
@@ -325,17 +325,14 @@ int main(int argc, char *argv[])
                         tmp[i] = rxpkt.payload[i];
                     }
 
-                    if (fp) {  
-			// EDITED BY W-M:
-                        // fprintf(fp, "%s\n", rxpkt.payload);
-			fwrite(rxpkt.payload, sizeof(char), rxpkt.size, fp);
-			fputc('\n', fp);
-			// END EDIT
+                    if (fp) {
+                        char b64_data_buffer[341] = {'\0'};
+                        bin_to_b64((uint8_t *)rxpkt.payload, rxpkt.size, b64_data_buffer, 341); /* 255 bytes = 340 chars in b64 + null char */
 
+                        fprintf(fp, "{\"rssi\":%.0f,\"snr\":%.1f,\"data\":\"%s\"}\n", rxpkt.rssi, rxpkt.snr, b64_data_buffer);
                         fflush(fp);
                     }
 
-		
                     if (tmp[2] == 0x00 && tmp[3] == 0x00) /* Maybe has HEADER ffff0000 */
                          chan_data = &tmp[4];
                     else
@@ -374,40 +371,19 @@ int main(int argc, char *argv[])
                     
                     chan_fp  = fopen(chan_path, "w+");
                     if ( NULL !=  chan_fp ) {
-			// EDITED BY W-M:
-                        //fwrite(chan_data, sizeof(char), data_size, fp);  
-                        // fprintf(chan_fp, "%s\n", chan_data);
+                        char b64_data_buffer[341] = {'\0'};
+                        bin_to_b64((uint8_t *)rxpkt.payload, rxpkt.size, b64_data_buffer, 341); /* 255 bytes = 340 chars in b64 + null char */
 
-			// fwrite(chan_data, sizeof(char), data_size, chan_fp);
-			// fwrite(rxpkt.payload, sizeof(char), rxpkt.size, chan_fp);
-			// fputc('\n', chan_fp);
-
-
-			// Try it one more time in hexadecimal:
-			/// char json_buffer[JSON_BUFFER_SIZE];
-			/// size_t json_buffer_index = 0;
-			/// json_buffer_index += snprintf((json_buffer + json_buffer_index), JSON_BUFFER_SIZE - json_buffer_index, "{\"rssi\":%.0f,\"snr\":%.1f,\"data\":\"", rxpkt.rssi, rxpkt.snr);
-
-			char b64_data_buffer[341] = {'\0'};
-			bin_to_b64((uint8_t *)rxpkt.payload, rxpkt.size, b64_data_buffer, 341); /* 255 bytes = 340 chars in b64 + null char */
-			/// json_buffer_index += bin_to_b64((uint8_t *)rxpkt.payload, rxpkt.size, (json_buffer + json_buffer_index), 341); /* 255 bytes = 340 chars in b64 + null char */
-			/// json_buffer_index += snprintf((json_buffer + json_buffer_index), JSON_BUFFER_SIZE - json_buffer_index, "\"}");
-			
-			// fwrite(buff, sizeof(char), buff_size, chan_fp);
-			// fwrite(json_buffer, sizeof(char), json_buffer_index, chan_fp);
-                        /// fprintf(chan_fp, "%s\n", json_buffer);
-
-			fprintf(chan_fp, "{\"rssi\":%.0f,\"snr\":%.1f,\"data\":\"%s\"}\n", rxpkt.rssi, rxpkt.snr, b64_data_buffer);
-			// END EDIT
+                        fprintf(chan_fp, "{\"rssi\":%.0f,\"snr\":%.1f,\"data\":\"%s\"}\n", rxpkt.rssi, rxpkt.snr, b64_data_buffer);
 
                         fflush(chan_fp);
                         fclose(chan_fp);
-                    } else 
+                    } else
                         fprintf(stderr, "ERROR~ canot open file path: %s\n", chan_path); 
 
                     //fprintf(stdout, "Received: %s\n", chan_data);
                     fprintf(stdout, "count_OK: %d, count_CRCERR: %d, next channel RNG: %ld\n", ++count_ok, count_err, (unsigned)(next/65536) % 32768);
-                } else                                             
+                } else
                     fprintf(stdout, "REC_OK: %d, CRCERR: %d, next channel RNG: %ld\n", count_ok, ++count_err, (unsigned)(next/65536) % 32768);
             }
         }
